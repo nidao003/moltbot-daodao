@@ -77,15 +77,7 @@ jobs:
             exit 1
           fi
           
-      # 步骤4：可选-发送通知（需要设置secrets）
-      - name: Notify on success
-        if: success() && env.SYNC_SUCCESS == 'true'
-        uses: actions/github-script@v6
-        with:
-          script: |
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: '✅ 已自动同步上游仓库 [moltbot/moltbot](https://github.com/moltbot/moltbot) 的最新更改到本仓库。'
-            })
+      # 步骤4：简单成功通知（修复版）
+      - name: Success notification
+        if: success()
+        run: echo "✅ 同步成功完成！Fork已更新到最新版本"
