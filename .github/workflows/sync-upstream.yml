@@ -1,0 +1,91 @@
+name: 'Sync with MoltBot Upstream'
+
+on:
+  # 自动触发：每天UTC时间2:00（北京时间10:00）运行
+  schedule:
+    - cron: '0 2 * * *'
+  
+  # 手动触发：在GitHub页面手动运行
+  workflow_dispatch:
+  
+  # 可选：当原始仓库有推送时触发（需要设置webhook，更高级）
+  # repository_dispatch:
+  #   types: [upstream_updated]
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: write  # 需要写权限来推送更改
+    
+    steps:
+      # 步骤1：检出当前仓库
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+          
+      # 步骤2：配置Git
+      - name: Configure Git
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git config --global pull.rebase false
+          
+      # 步骤3：添加上游仓库并同步
+      - name: Sync from MoltBot upstream
+        run: |
+          # 添加上游仓库
+          git remote add upstream https://github.com/moltbot/moltbot.git
+          
+          # 获取上游更新
+          echo "正在获取上游仓库更新..."
+          git fetch upstream main
+          
+          # 合并更新（使用--no-ff保留合并记录）
+          echo "正在合并到本地分支..."
+          git checkout main
+          
+          # 尝试合并，如果冲突则优雅失败
+          if git merge upstream/main --no-edit --no-ff; then
+            echo "✅ 合并成功，推送更新..."
+            
+            # 推送更新到你的fork
+            if git push origin main; then
+              echo "🎉 同步完成！Fork已更新到最新版本"
+              
+              # 可选：创建同步完成的标记
+              echo "SYNC_SUCCESS=true" >> $GITHUB_ENV
+            else
+              echo "❌ 推送失败，请检查权限"
+              exit 1
+            fi
+          else
+            echo "⚠️ 合并发生冲突，需要手动处理"
+            echo "冲突文件："
+            git status --porcelain | grep -E '^(AA|UU|DU|UD)'
+            
+            # 撤销合并
+            git merge --abort
+            
+            # 移除上游remote保持干净
+            git remote remove upstream
+            
+            echo "::warning::检测到合并冲突，请手动解决"
+            exit 1
+          fi
+          
+      # 步骤4：可选-发送通知（需要设置secrets）
+      - name: Notify on success
+        if: success() && env.SYNC_SUCCESS == 'true'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '✅ 已自动同步上游仓库 [moltbot/moltbot](https://github.com/moltbot/moltbot) 的最新更改到本仓库。'
+            })
